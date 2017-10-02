@@ -16,6 +16,7 @@ import android.util.Log;
 
 import com.unicool.recording.R;
 import com.unicool.recording.model.Itf;
+import com.unicool.recording.presenter.ThreadManager;
 import com.unicool.recording.util.CommonUtil;
 import com.unicool.recording.util.DateUtil;
 import com.unicool.recording.util.FileUtil;
@@ -31,7 +32,7 @@ import java.util.Calendar;
  *  @文件名:   RecordService
  *  @创建者:   cjf
  *  @创建时间:  2017/9/25 14:46
- *  @描述：    
+ *  @描述：    This is a separate process :recording
  */
 public class RecordService extends Service {
     private static final String TAG = Itf.TAG;
@@ -40,25 +41,35 @@ public class RecordService extends Service {
     private static final String TF_path = "/storage/sdcard1";
     private static final String TF_path_real = "/sdcard";
     public static boolean isRun = false;
-    public static MediaRecorder mediaRecorder;
-    public static MediaRecorder mediaRecorder_previous;
-    private final String recording_path = "/" + this.getPackageName() + "/recording/" + CommonUtil.getAlias(this);
-    private final String passWd = CommonUtil.getAlias(this);
-    public boolean isAnotherRecorderReset = false;
-    private BroadcastReceiver time_tick_receiver;
-    private BroadcastReceiver media_receiver;
+    private static MediaRecorder mediaRecorder;
+    private static MediaRecorder mediaRecorder_previous;
+    private static boolean isPreRecordNeedStop = false;
+    private String recording_path;
     private String file_path;
     private File currentDir;
+    private String passWd;
+    private BroadcastReceiver time_tick_receiver;
+    private BroadcastReceiver media_receiver;
+    private boolean TFCARD_EJECT = false;
+    private boolean TFCARD_MOUNTED = false;
 
     @Override
     public void onCreate() {
         isRun = true;
         setupForeground();
+        recording_path = "/" + this.getPackageName() + "/recording/" + CommonUtil.getAlias(this);
+//        passWd = CommonUtil.getAlias(this);
+        passWd = "test0123";
         // Register the time tick broadcast to turn on a new recording and end the previous one at every integral hour
 
-        clearUpFiles();
-        startTimedTask();
-        initReceiveTask();
+        ThreadManager.getNormalPool().execute(new Runnable() {
+            @Override
+            public void run() {
+                clearUpFiles();
+                startTimedTask();
+                initReceiveTask();
+            }
+        });
     }
 
     /**
@@ -66,11 +77,12 @@ public class RecordService extends Service {
      */
     private synchronized void clearUpFiles() {
         long l0 = System.currentTimeMillis();
-        boolean tfUsable = FileUtil.getExtSDCardPaths().size() > 1;
+        boolean tfUsable = !TFCARD_EJECT && FileUtil.getExtSDCardPaths().size() > 1;
         Log.d(TAG, "tfUsable:" + tfUsable);
         Log.d(TAG, "Time to get the extrernal SD cards paths:" + (System.currentTimeMillis() - l0));
         String rootPath = tfUsable ? TF_path : SD_path;
         file_path = rootPath + recording_path;
+
 
         /////////////////////
 //        new Thread(new Runnable() {
@@ -91,16 +103,16 @@ public class RecordService extends Service {
         /////////////////////
 
         File rDir = FileUtil.makeDirectory(file_path);
-        Log.w(TAG, "rDir:" + rDir);
         if (rDir == null) {
             SystemClock.sleep(1000);
+            Log.e(TAG, "\trDir = null");
             clearUpFiles();
             //throw new RuntimeException("FileUtil makeDirectory error:\n\t" + file_path);
             return;
         }
 
-        // Delete recording files for more than 90 days
-        while (rDir.list().length > 90) {
+        // Delete recording files that exceeds the specified number of days
+        while (rDir.list().length > Itf.RECORDING_DAYS) {
             boolean b = FileUtil.deleteOldestFiles(rDir, true);
             Log.w(TAG, "Delete expired files by day.\tresult:\t" + b);
             if (!b) break;
@@ -132,17 +144,15 @@ public class RecordService extends Service {
         long l2 = System.currentTimeMillis();
         // TODO: 2017/9/28 If there is a compression file, unzip it, then compress the folder 
 
+        TFCARD_EJECT = TFCARD_MOUNTED = false;
     }
 
     /**
      * start record
      */
     private synchronized void startTimedTask() {
-        if (mediaRecorder == null) {
-            mediaRecorder = new MediaRecorder();
-        }
+        mediaRecorder = new MediaRecorder();
         Log.i(TAG, "start record\t" + currentDir + "\t" + mediaRecorder);
-        isAnotherRecorderReset = false;
         // 设置音频录入源
         mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
         // 设置录制音频的输出格式
@@ -158,19 +168,12 @@ public class RecordService extends Service {
 
             @Override
             public void onError(MediaRecorder mr, int what, int extra) {
-                // Recording error, stop recording
-                mr.stop();
-                mr.reset();
-                isAnotherRecorderReset = true;
-                Log.e(TAG, "An error occurred in the recorder:\t" + mr + "\t.what:" + what);
-
-                //Restart recording
-                SystemClock.sleep(3000);
+                stopCurrentRecording();
+                if (isPreRecordNeedStop) stopPreviousRecording();
                 clearUpFiles();
-                if (mr == RecordService.mediaRecorder_previous) {
-                    swopRecorders();
-                }
+                // Recording error, stop recording
                 startTimedTask();
+                Log.e(TAG, "An error occurred in the recorder:\t" + mr + "\t.what:" + what);
             }
         });
         // Prepare, and then start
@@ -181,10 +184,10 @@ public class RecordService extends Service {
             e.printStackTrace();
             Log.e(TAG, "An exception occurs when " + mediaRecorder + " starts to prepare.\t" + e.getMessage());
             mediaRecorder.reset();
-            isAnotherRecorderReset = true;
-            SystemClock.sleep(3000);
-            clearUpFiles();//
-            startTimedTask();//
+            mediaRecorder.release();
+            mediaRecorder = null;
+            clearUpFiles();
+            startTimedTask();
         }
     }
 
@@ -192,9 +195,9 @@ public class RecordService extends Service {
      * Save the previous recording object to stop the recording task in the front
      */
     private synchronized void swopRecorders() {
-        MediaRecorder recycling = mediaRecorder_previous;
+        if (mediaRecorder == null) return;
+        isPreRecordNeedStop = true;
         mediaRecorder_previous = mediaRecorder;
-        mediaRecorder = recycling;
     }
 
     /**
@@ -203,9 +206,29 @@ public class RecordService extends Service {
     private synchronized void stopPreviousRecording() {
         Log.i(TAG, "Stop recording\t" + currentDir + "\t" + mediaRecorder_previous);
         if (mediaRecorder_previous == null) return;
-        mediaRecorder_previous.stop();
-        mediaRecorder_previous.reset();
-        isAnotherRecorderReset = true;
+        if (TFCARD_EJECT) {
+            mediaRecorder_previous.reset();
+        } else {
+            mediaRecorder_previous.stop();
+        }
+        mediaRecorder_previous.release();
+        isPreRecordNeedStop = false;
+        mediaRecorder_previous = null;
+    }
+
+    /**
+     * stop and release current recording
+     */
+    private synchronized void stopCurrentRecording() {
+        Log.i(TAG, "Stop Current Recording\t" + currentDir + "\t" + mediaRecorder);
+        if (mediaRecorder == null) return;
+        if (TFCARD_EJECT) {
+            mediaRecorder.reset();
+        } else {
+            mediaRecorder.stop();
+        }
+        mediaRecorder.release();
+        mediaRecorder = null;
     }
 
     private void encryptCompress() {
@@ -228,6 +251,11 @@ public class RecordService extends Service {
                     clearUpFiles();
                 }
                 if (min == 0) {
+                    if (TFCARD_EJECT || TFCARD_MOUNTED) { //TFCARD_EJECT = false
+                        stopCurrentRecording();
+                        if (isPreRecordNeedStop) stopPreviousRecording(); //false
+                        clearUpFiles();
+                    }
                     swopRecorders();
                     startTimedTask();
                     stopPreviousRecording();
@@ -244,17 +272,15 @@ public class RecordService extends Service {
             public void onReceive(Context context, Intent intent) {
                 Log.e(TAG, "media_receiver\t" + intent.getAction());
                 if (intent.getAction().equals(Intent.ACTION_MEDIA_EJECT)) {
-//                    SystemClock.sleep(2000);
-//                    clearUpFiles();
-//                    swopRecorders();
-//                    startTimedTask();
-//                    stopPreviousRecording();
+                    TFCARD_EJECT = true;
+                    TFCARD_MOUNTED = false;
+                    stopCurrentRecording();
+                    if (isPreRecordNeedStop) stopPreviousRecording();
+                    clearUpFiles();
+                    startTimedTask();
                 } else if (intent.getAction().equals(Intent.ACTION_MEDIA_MOUNTED)) {
-//                    SystemClock.sleep(2000);
-//                    clearUpFiles();
-//                    swopRecorders();
-//                    startTimedTask();
-//                    stopPreviousRecording();
+                    TFCARD_MOUNTED = true;
+                    TFCARD_EJECT = false;
                 }
             }
         };

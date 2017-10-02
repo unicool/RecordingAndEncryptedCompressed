@@ -2,11 +2,32 @@
 
     package="com.unicool.recording">
 
+    <!-- The permissions to write data to the sdcard -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <!-- The permissions to create/delete files in sdcard -->
+    <uses-permission android:name="android.permission.MOUNT_UNMOUNT_FILESYSTEMS" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!--<uses-permission android:name="android.permission.CALL_PHONE" />-->
+    <!--<uses-permission android:name="android.permission.CAMERA" />-->
+    <!--<uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />-->
+
     <application
         android:allowBackup="true"
         android:label="@string/app_name"
         android:supportsRtl="true">
 
+        <service
+            android:name=".service.RecordService"
+            android:exported="true"
+            android:process=":recording">
+            <intent-filter>
+                <action android:name="com.unicool.recording.service.RecordService" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>

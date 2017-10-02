@@ -10,4 +10,6 @@ package com.unicool.recording.model;
  */
 public interface Itf {
     String TAG = "[zip4j_demo]";
+
+    int RECORDING_DAYS = 90;
 }
