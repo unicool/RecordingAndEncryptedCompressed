@@ -470,6 +470,7 @@ public class CompressUtil {
      * @throws ZipException
      */
     public static String addFilesToFolderInZip(String zipFile, String folderInZip, ArrayList<File> filesToAdd, String passwd) {
+        if (filesToAdd.size() == 0) return folderInZip;
         ZipParameters parameters = new ZipParameters();
         parameters.setCompressionMethod(Zip4jConstants.COMP_DEFLATE);           // 压缩方式
         parameters.setCompressionLevel(Zip4jConstants.DEFLATE_LEVEL_NORMAL);    // 压缩级别
