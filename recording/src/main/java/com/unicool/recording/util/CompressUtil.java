@@ -133,26 +133,27 @@ public class CompressUtil {
      * 如果以路径分隔符(File.separator)结尾,则视为目录,压缩文件名取源文件名,以.zip为后缀,否则视为文件名.
      *
      * @param src         要压缩的文件或文件夹路径
-     * @param dest        压缩文件存放路径
+     * @param destZip     压缩文件存放路径
      * @param isCreateDir 是否在压缩文件里创建目录,仅在压缩文件为目录时有效.<br />
      *                    如果为false,将直接压缩目录下文件到压缩文件.
      * @param passwd      压缩使用的密码，使用AES加密
      * @return 最终的压缩文件存放的绝对路径, 如果为null则说明压缩失败.
      */
-    public static String zip(String src, String dest, boolean isCreateDir, String passwd) {
+    public static String zip(String src, String destZip, boolean isCreateDir, String passwd) {
         File srcFile = new File(src);
-        dest = buildDestinationZipFilePath(srcFile, dest);
+        destZip = buildDestinationZipFilePath(srcFile, destZip);
         ZipParameters parameters = new ZipParameters();
         parameters.setCompressionMethod(Zip4jConstants.COMP_DEFLATE);           // 压缩方式  
         parameters.setCompressionLevel(Zip4jConstants.DEFLATE_LEVEL_NORMAL);    // 压缩级别  
         if (!TextUtils.isEmpty(passwd)) {
             parameters.setEncryptFiles(true);
-            parameters.setEncryptionMethod(Zip4jConstants.ENC_METHOD_AES); // 加密方式  
-            parameters.setAesKeyStrength(Zip4jConstants.AES_STRENGTH_256); // Set AES Key strength. 128/256
+            parameters.setEncryptionMethod(Zip4jConstants.ENC_METHOD_STANDARD); // 加密方式  
+            //parameters.setEncryptionMethod(Zip4jConstants.ENC_METHOD_AES); // 加密方式  
+            //parameters.setAesKeyStrength(Zip4jConstants.AES_STRENGTH_256); // Set AES Key strength. 128/256
             parameters.setPassword(passwd.toCharArray());
         }
         try {
-            ZipFile zipFile = new ZipFile(dest);
+            ZipFile zipFile = new ZipFile(destZip);
             if (srcFile.isDirectory()) {
                 // 如果不创建目录的话,将直接把给定目录下的文件压缩到压缩文件,即没有目录结构  
                 if (!isCreateDir) {
@@ -160,13 +161,13 @@ public class CompressUtil {
                     ArrayList<File> temp = new ArrayList<File>();
                     Collections.addAll(temp, subFiles);
                     zipFile.addFiles(temp, parameters);
-                    return dest;
+                    return destZip;
                 }
                 zipFile.addFolder(srcFile, parameters);
             } else {
                 zipFile.addFile(srcFile, parameters);
             }
-            return dest;
+            return destZip;
         } catch (ZipException e) {
             e.printStackTrace();
         }
@@ -182,24 +183,17 @@ public class CompressUtil {
      * @return 正确的压缩文件存放路径
      */
     private static String buildDestinationZipFilePath(File srcFile, String destParam) {
+        File destDir;
         if (TextUtils.isEmpty(destParam)) {
-            if (srcFile.isDirectory()) {
-                destParam = srcFile.getParent() + File.separator + srcFile.getName() + ".zip";
-            } else {
-                String fileName = srcFile.getName().substring(0, srcFile.getName().lastIndexOf("."));
-                destParam = srcFile.getParent() + File.separator + fileName + ".zip";
-            }
+            destDir = srcFile.getParentFile();
         } else {
-            createDestDirectoryIfNecessary(destParam);  // 在指定路径不存在的情况下将其创建出来  
-            if (destParam.endsWith(File.separator)) {
-                String fileName = "";
-                if (srcFile.isDirectory()) {
-                    fileName = srcFile.getName();
-                } else {
-                    fileName = srcFile.getName().substring(0, srcFile.getName().lastIndexOf("."));
-                }
-                destParam += fileName + ".zip";
-            }
+            destDir = createDestDirectoryIfNecessary(destParam);// 在指定路径不存在的情况下将其创建出来
+        }
+        if (!destParam.endsWith(".zip")) {
+            String fileName = srcFile.getName();
+            int i = fileName.lastIndexOf(".");
+            if (i > 0) fileName = fileName.substring(0, i);
+            destParam = destDir.getAbsolutePath() + File.separator + fileName + ".zip";
         }
         return destParam;
     }
@@ -208,17 +202,17 @@ public class CompressUtil {
      * 在必要的情况下创建压缩文件存放目录,比如指定的存放路径并没有被创建
      *
      * @param destParam 指定的存放路径,有可能该路径并没有被创建
+     * @return 文件存放目录
      */
-    private static void createDestDirectoryIfNecessary(String destParam) {
-        File destDir = null;
-        if (destParam.endsWith(File.separator)) {
-            destDir = new File(destParam);
-        } else {
+    private static File createDestDirectoryIfNecessary(String destParam) {
+        File destDir = new File(destParam);
+        if (!destParam.endsWith(File.separator) && destDir.isFile()) {
             destDir = new File(destParam.substring(0, destParam.lastIndexOf(File.separator)));
         }
         if (!destDir.exists()) {
-            destDir.mkdirs();
+            destDir.mkdirs();//
         }
+        return destDir;
     }
 
     /**
@@ -229,82 +223,240 @@ public class CompressUtil {
      * @param passwd      加密压缩需要添加密码
      * @throws ZipException 压缩文件有损坏或者解压缩失败抛出
      */
-    public static void removeFilesFromZipArchive(String zFile, String removeFiles, String passwd) throws ZipException {
-        // 创建ZipFile并设置编码
-        ZipFile zipFile = new ZipFile(zFile);
-        zipFile.setFileNameCharset("GBK");
-        if (!zipFile.isValidZipFile()) {
-            throw new ZipException("压缩文件不合法,可能被损坏.");
-        }
-        if (zipFile.isEncrypted()) {
-            zipFile.setPassword(passwd.toCharArray());
-        }
+    public static void removeFilesFromZipArchive(String zFile, String removeFiles, String passwd) {
+        try {
+            // 创建ZipFile并设置编码
+            ZipFile zipFile = new ZipFile(zFile);
+            zipFile.setFileNameCharset("GBK");
+            if (!zipFile.isValidZipFile()) {
+                throw new ZipException("压缩文件不合法,可能被损坏.");
+            }
+            if (zipFile.isEncrypted()) {
+                zipFile.setPassword(passwd.toCharArray());
+            }
 
-        // 如果文件（夹）不存在, 直接返回
-        FileHeader dirHeader = zipFile.getFileHeader(removeFiles);
-        if (null == dirHeader) {
-            if (removeFiles.endsWith(File.separator)) return;
-            removeFiles += File.separator; //缺少文件分隔符造成null
-            dirHeader = zipFile.getFileHeader(removeFiles);
-            if (null == dirHeader) return;
-        }
+            // 如果文件（夹）不存在, 直接返回
+            FileHeader dirHeader = zipFile.getFileHeader(removeFiles);
+            if (null == dirHeader) {
+                if (removeFiles.endsWith(File.separator)) return;
+                removeFiles += File.separator; //缺少文件分隔符造成null
+                dirHeader = zipFile.getFileHeader(removeFiles);
+                if (null == dirHeader) return;
+            }
 
-        // 判断要删除的是文件还是目录
-        if (!dirHeader.isDirectory()) {
+            // 判断要删除的是文件还是目录
+            if (!dirHeader.isDirectory()) {
+                zipFile.removeFile(dirHeader);
+                return;
+            }
+
+            // 遍历压缩文件中所有的FileHeader, 将指定删除目录下的子文件名保存起来
+            List<FileHeader> headerList = zipFile.getFileHeaders();
+            if (headerList == null || headerList.size() == 0) return;
+            List<FileHeader> rmFiles = new ArrayList<FileHeader>();
+            for (FileHeader subHeader : headerList) {
+                String fileName = subHeader.getFileName();
+                if (fileName.startsWith(dirHeader.getFileName()) && !fileName.equals(dirHeader.getFileName())) {
+                    rmFiles.add(subHeader);
+                }
+            }
+
+            // 遍历删除指定目录下的所有子文件, 最后删除指定目录(此时已为空目录)
+            for (FileHeader rmFile : rmFiles) {
+                if (rmFile.isDirectory()) {
+                    removeFilesFromZipArchive(zFile, rmFile.getFileName(), passwd);
+                } else {
+                    zipFile.removeFile(rmFile);
+                }
+            }
             zipFile.removeFile(dirHeader);
-            return;
+        } catch (ZipException e) {
+            e.printStackTrace();
         }
-
-        // 遍历压缩文件中所有的FileHeader, 将指定删除目录下的子文件名保存起来
-        List<FileHeader> headerList = zipFile.getFileHeaders();
-        List<FileHeader> rmFiles = new ArrayList<FileHeader>();
-        for (FileHeader subHeader : headerList) {
-            String fileName = subHeader.getFileName();
-            if (fileName.startsWith(dirHeader.getFileName()) && !fileName.equals(dirHeader.getFileName())) {
-                rmFiles.add(subHeader);
-            }
-        }
-
-        // 遍历删除指定目录下的所有子文件, 最后删除指定目录(此时已为空目录)
-        for (FileHeader rmFile : rmFiles) {
-            if (rmFile.isDirectory()) {
-                removeFilesFromZipArchive(zFile, rmFile.getFileName(), passwd);
-            } else {
-                zipFile.removeFile(rmFile);
-            }
-        }
-        zipFile.removeFile(dirHeader);
     }
 
     /**
-     * 删除压缩包中最早创建的文件
+     * 删除压缩包中最早创建的一个文件
      *
      * @param zFile  指定的ZIP压缩文件
      * @param passwd 加密压缩需要添加密码
      */
-    public static void removeOldestFileFromZipArchive(String zFile, String passwd) throws ZipException {
-        // 创建ZipFile并设置编码
-        ZipFile zipFile = new ZipFile(zFile);
-        zipFile.setFileNameCharset("GBK");
-        if (!zipFile.isValidZipFile()) {
-            throw new ZipException("压缩文件不合法,可能被损坏.");
-        }
-        if (zipFile.isEncrypted()) {
-            zipFile.setPassword(passwd.toCharArray());
-        }
-
-        List<FileHeader> fileHeaders = zipFile.getFileHeaders();
-        Collections.sort(fileHeaders, new Comparator<FileHeader>() {
-            @Override
-            public int compare(FileHeader f1, FileHeader f2) {
-                return Integer.valueOf(f1.getLastModFileTime()).compareTo(f2.getLastModFileTime());
+    public static void removeOldestFileFromZipArchive(String zFile, String passwd, final boolean isSortByName) {
+        try {
+            // 创建ZipFile并设置编码
+            ZipFile zipFile = new ZipFile(zFile);
+            zipFile.setFileNameCharset("GBK");
+            if (!zipFile.isValidZipFile()) {
+                throw new ZipException("压缩文件不合法,可能被损坏.");
             }
-        });
-        FileHeader rmFile = fileHeaders.get(0);
-        if (rmFile.isDirectory()) {
-            removeOldestFileFromZipArchive(zFile, passwd);
-        } else {
-            zipFile.removeFile(rmFile);
+            if (zipFile.isEncrypted()) {
+                zipFile.setPassword(passwd.toCharArray());
+            }
+
+            List<FileHeader> fileHeaders = zipFile.getFileHeaders();
+            if (fileHeaders == null || fileHeaders.size() == 0) return;
+            Collections.sort(fileHeaders, new Comparator<FileHeader>() {
+                @Override
+                public int compare(FileHeader f1, FileHeader f2) {
+                    if (isSortByName) {
+                        String s1 = f1.getFileName();
+                        s1 = s1.lastIndexOf(".") > 0 ? s1.substring(0, s1.indexOf(".")) : s1;
+                        s1 = s1.substring(s1.lastIndexOf(File.separator), s1.length());
+                        String s2 = f2.getFileName();
+                        s2 = s2.lastIndexOf(".") > 0 ? s2.substring(0, s2.indexOf(".")) : s2;
+                        s2 = s2.substring(s2.lastIndexOf(File.separator), s2.length());
+                        try {
+                            return Long.valueOf(s1).compareTo(Long.valueOf(s2));
+                        } catch (NumberFormatException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                    return Integer.valueOf(f1.getLastModFileTime()).compareTo(f2.getLastModFileTime());
+                }
+            });
+            FileHeader rmFile = fileHeaders.get(0);
+            if (rmFile.isDirectory()) {
+                removeOldestFileFromZipArchive(zFile, passwd, isSortByName);
+            } else {
+                zipFile.removeFile(rmFile);
+            }
+        } catch (ZipException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 判断zip文件是否合法的存在了
+     *
+     * @param zFile 指定的ZIP压缩文件
+     */
+    public static boolean isZip4jLegal(String zFile) {
+        try {
+            ZipFile zipFile = new ZipFile(zFile);
+            zipFile.setFileNameCharset("GBK");
+            return zipFile.isValidZipFile();
+        } catch (ZipException e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+
+    /**
+     * 判断zip文件是否包含指定的文件夹或文件
+     *
+     * @param zFile    指定的ZIP压缩文件
+     * @param zfInside 目标文件或文件夹
+     */
+    public static boolean isZip4jContain(String zFile, String zfInside) {
+        if (!isZip4jLegal(zFile)) return false;
+        try {
+            ZipFile zipFile = new ZipFile(zFile);
+            zipFile.getFileHeader(zfInside);
+            // 如果文件（夹）不存在, 直接返回
+            FileHeader dirHeader = zipFile.getFileHeader(zfInside);
+            if (null == dirHeader) {
+                if (zfInside.endsWith(File.separator)) return false;
+                zfInside += File.separator; //缺少文件分隔符造成null
+                dirHeader = zipFile.getFileHeader(zfInside);
+            }
+            return dirHeader != null;
+        } catch (ZipException e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+
+    /**
+     * 获取压缩包指定级别文件夹下面的文件数量
+     *
+     * @param zFile     指定的ZIP压缩文件
+     * @param fileInZip 指定级别的内部文件夹
+     * @param passwd    加密压缩需要添加密码
+     * @throws ZipException 压缩文件有损坏或者解压缩失败抛出
+     */
+    public static int getZipLevelFileCount(String zFile, String fileInZip, String passwd) {
+        try {
+            // 创建ZipFile并设置编码
+            ZipFile zipFile = new ZipFile(zFile);
+            zipFile.setFileNameCharset("GBK");
+            if (!zipFile.isValidZipFile()) {
+                throw new ZipException("压缩文件不合法,可能被损坏.");
+            }
+            if (zipFile.isEncrypted()) {
+                zipFile.setPassword(passwd.toCharArray());
+            }
+
+            // 如果文件（夹）不存在, 直接返回
+            FileHeader dirHeader = zipFile.getFileHeader(fileInZip);
+            if (null == dirHeader) {
+                if (fileInZip.endsWith(File.separator)) return -1;
+                fileInZip += File.separator; //缺少文件分隔符造成null
+                dirHeader = zipFile.getFileHeader(fileInZip);
+                if (null == dirHeader) return -1;
+            }
+
+            // 判断要是文件还是目录
+            if (!dirHeader.isDirectory()) return -1;
+
+            List<FileHeader> headerList = zipFile.getFileHeaders();
+            if (headerList == null || headerList.size() == 0) return -1;
+            int count = 0;
+            for (FileHeader subHeader : headerList) {
+                String fileName = subHeader.getFileName();
+                if (fileName.startsWith(dirHeader.getFileName()) && !fileName.equals(dirHeader.getFileName())) {
+                    count++;
+                }
+            }
+            return count;
+        } catch (ZipException e) {
+            e.printStackTrace();
+            return -1;
+        }
+    }
+
+    /**
+     * @param zFile
+     * @param fileInZip
+     * @param passwd
+     * @return
+     */
+    public static String getOldestFolder(String zFile, String fileInZip, String passwd, final boolean isSortByName) {
+        try {
+            // 创建ZipFile并设置编码
+            ZipFile zipFile = new ZipFile(zFile);
+            zipFile.setFileNameCharset("GBK");
+            if (!zipFile.isValidZipFile()) {
+                throw new ZipException("压缩文件不合法,可能被损坏.");
+            }
+            if (zipFile.isEncrypted()) {
+                zipFile.setPassword(passwd.toCharArray());
+            }
+
+            List<FileHeader> fileHeaders = zipFile.getFileHeaders();
+            if (fileHeaders == null || fileHeaders.size() == 0) return null;
+            Collections.sort(fileHeaders, new Comparator<FileHeader>() {
+                @Override
+                public int compare(FileHeader f1, FileHeader f2) {
+                    if (isSortByName) {
+                        String s1 = f1.getFileName();
+                        s1 = s1.lastIndexOf(".") > 0 ? s1.substring(0, s1.indexOf(".")) : s1;
+                        s1 = s1.substring(s1.lastIndexOf(File.separator), s1.length());
+                        String s2 = f2.getFileName();
+                        s2 = s2.lastIndexOf(".") > 0 ? s2.substring(0, s2.indexOf(".")) : s2;
+                        s2 = s2.substring(s2.lastIndexOf(File.separator), s2.length());
+                        try {
+                            return Long.valueOf(s1).compareTo(Long.valueOf(s2));
+                        } catch (NumberFormatException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                    return Integer.valueOf(f1.getLastModFileTime()).compareTo(f2.getLastModFileTime());
+                }
+            });
+            return fileHeaders.get(0).getFileName();
+        } catch (ZipException e) {
+            e.printStackTrace();
+            return null;
         }
     }
 
@@ -314,25 +466,25 @@ public class CompressUtil {
      * @param zipFile     完整路径的zipFile文件
      * @param folderInZip 文件夹相对zip的路径
      * @param passwd      AES-256 方式加密密码
+     * @return folderInZip
      * @throws ZipException
      */
-    public static String addFolder2Zip(String zipFile, String folderInZip, String passwd) {
+    public static String addFilesToFolderInZip(String zipFile, String folderInZip, ArrayList<File> filesToAdd, String passwd) {
         ZipParameters parameters = new ZipParameters();
         parameters.setCompressionMethod(Zip4jConstants.COMP_DEFLATE);           // 压缩方式
         parameters.setCompressionLevel(Zip4jConstants.DEFLATE_LEVEL_NORMAL);    // 压缩级别
+        if (!folderInZip.endsWith(File.separator)) folderInZip += File.separator;
+        parameters.setRootFolderInZip(folderInZip);
         if (!TextUtils.isEmpty(passwd)) {
             parameters.setEncryptFiles(true);
-            parameters.setEncryptionMethod(Zip4jConstants.ENC_METHOD_AES); // 加密方式
-            parameters.setAesKeyStrength(Zip4jConstants.AES_STRENGTH_256); // Set AES Key strength. 128/256
+            parameters.setEncryptionMethod(Zip4jConstants.ENC_METHOD_STANDARD); // 加密方式  
+            //parameters.setEncryptionMethod(Zip4jConstants.ENC_METHOD_AES); // 加密方式  
+            //parameters.setAesKeyStrength(Zip4jConstants.AES_STRENGTH_256); // Set AES Key strength. 128/256
             parameters.setPassword(passwd.toCharArray());
         }
-        createDestDirectoryIfNecessary(new File(zipFile).getParent());
         try {
             ZipFile zf = new ZipFile(zipFile);
-            if (!folderInZip.endsWith(File.separator)) folderInZip += File.separator; //x
-            if (zf.getFileHeader(folderInZip) != null) return folderInZip;
-            // Add folder to the zip file
-            zf.addFolder(folderInZip, parameters);
+            zf.addFiles(filesToAdd, parameters);
             return folderInZip;
         } catch (ZipException e) {
             e.printStackTrace();

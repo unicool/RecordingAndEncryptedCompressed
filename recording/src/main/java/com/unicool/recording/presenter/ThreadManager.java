@@ -11,14 +11,14 @@ import java.util.concurrent.TimeUnit;
 public final class ThreadManager {
 
     private static final ThreadPoolProxy mNormalPool = new ThreadPoolProxy(3, 3, 5 * 1000);
-    private static final ThreadPoolProxy mDownloadPool = new ThreadPoolProxy(1, 1, 5 * 1000);
+    private static final ThreadPoolProxy mSinglePool = new ThreadPoolProxy(1, 1, 5 * 1000);
 
     public static ThreadPoolProxy getNormalPool() {
         return mNormalPool;
     }
 
-    public static ThreadPoolProxy getDownloadPool() {
-        return mDownloadPool;
+    public static ThreadPoolProxy getSinglePool() {
+        return mSinglePool;
     }
 
 

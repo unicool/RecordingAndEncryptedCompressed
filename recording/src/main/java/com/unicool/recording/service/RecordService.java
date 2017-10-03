@@ -18,12 +18,15 @@ import com.unicool.recording.R;
 import com.unicool.recording.model.Itf;
 import com.unicool.recording.presenter.ThreadManager;
 import com.unicool.recording.util.CommonUtil;
+import com.unicool.recording.util.CompressUtil;
 import com.unicool.recording.util.DateUtil;
 import com.unicool.recording.util.FileUtil;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
 
 
 /*
@@ -37,16 +40,16 @@ import java.util.Calendar;
 public class RecordService extends Service {
     private static final String TAG = Itf.TAG;
     private static final int NOTIID = 237;
-    private static final String SD_path = Environment.getExternalStorageDirectory().getAbsolutePath();
-    private static final String TF_path = "/storage/sdcard1";
-    private static final String TF_path_real = "/sdcard";
+    private static final String SD_path = Environment.getExternalStorageDirectory().getAbsolutePath() + File.separator;
+    private static final String TF_path = "/storage/sdcard1/";
+    private static final String TF_path_real = "/sdcard/";
     public static boolean isRun = false;
     private static MediaRecorder mediaRecorder;
     private static MediaRecorder mediaRecorder_previous;
     private static boolean isPreRecordNeedStop = false;
     private String recording_path;
-    private String file_path;
     private File currentDir;
+    private String zipFile;
     private String passWd;
     private BroadcastReceiver time_tick_receiver;
     private BroadcastReceiver media_receiver;
@@ -57,17 +60,24 @@ public class RecordService extends Service {
     public void onCreate() {
         isRun = true;
         setupForeground();
-        recording_path = "/" + this.getPackageName() + "/recording/" + CommonUtil.getAlias(this);
-//        passWd = CommonUtil.getAlias(this);
-        passWd = "test0123";
+        recording_path = this.getPackageName() + "/recording/temp/";
+        passWd = CommonUtil.getAlias(this);
         // Register the time tick broadcast to turn on a new recording and end the previous one at every integral hour
 
         ThreadManager.getNormalPool().execute(new Runnable() {
             @Override
             public void run() {
-                clearUpFiles();
+                Log.d(TAG, "NormalPool\n\tThread.currentThread():\n\t" + Thread.currentThread());
+                updateFile();
                 startTimedTask();
                 initReceiveTask();
+            }
+        });
+        ThreadManager.getSinglePool().execute(new Runnable() {
+            @Override
+            public void run() {
+                Log.d(TAG, "SinglePool\n\tThread.currentThread():\n\t" + Thread.currentThread());
+                cleanupAndEncryptCompress();
             }
         });
     }
@@ -75,76 +85,21 @@ public class RecordService extends Service {
     /**
      * Delete redundant or expired files, and set the save path for today's files
      */
-    private synchronized void clearUpFiles() {
+    private synchronized void updateFile() {
         long l0 = System.currentTimeMillis();
         boolean tfUsable = !TFCARD_EJECT && FileUtil.getExtSDCardPaths().size() > 1;
         Log.d(TAG, "tfUsable:" + tfUsable);
         Log.d(TAG, "Time to get the extrernal SD cards paths:" + (System.currentTimeMillis() - l0));
-        String rootPath = tfUsable ? TF_path : SD_path;
-        file_path = rootPath + recording_path;
-
-
-        /////////////////////
-//        new Thread(new Runnable() {
-//            @Override
-//            public void run() {
-//                String file_path = SD_path + recording_path;
-//                String folderInzip = CompressUtil.addFolder2Zip(file_path + ".zip", CommonUtil.getAlias(RecordService.this), passWd);
-//                Log.d(TAG, "folderInzip:" + folderInzip);
-//                FileUtil.isFileExists(file_path + ".zip");
-//                File[] zipFiles = FileUtil.haveZipFiles(new File(file_path).getParent());
-//                Log.d(TAG, "zipFiles:\t" + Arrays.toString(zipFiles));
-////                String zip = CompressUtil.zip(file_path + ".zip", new File(file_path).getParent(), passWd);
-////                Log.d(TAG, "zip:\t" + zip);
-//            }
-//        }).start();
-
-
-        /////////////////////
-
-        File rDir = FileUtil.makeDirectory(file_path);
-        if (rDir == null) {
+        String sdPath = tfUsable ? TF_path : SD_path;
+        currentDir = FileUtil.makeDirectory(sdPath + recording_path + DateUtil.getDate());
+        if (currentDir == null) {
             SystemClock.sleep(1000);
-            Log.e(TAG, "\trDir = null");
-            clearUpFiles();
-            //throw new RuntimeException("FileUtil makeDirectory error:\n\t" + file_path);
+            Log.e(TAG, "\tcurrentDir = null");
+            updateFile();
             return;
         }
-
-        // Delete recording files that exceeds the specified number of days
-        while (rDir.list().length > Itf.RECORDING_DAYS) {
-            boolean b = FileUtil.deleteOldestFiles(rDir, true);
-            Log.w(TAG, "Delete expired files by day.\tresult:\t" + b);
-            if (!b) break;
-        }
-
-        // Delete the oldest rDir, if space is not enough
-        while (FileUtil.getSDFreeSize(rootPath) < FileUtil.THRESHOLD_WARNING_SPACE) {
-            // TODO: 2017/9/28 Get the earliest files, unzip them, and then delete them one by one, fianlly compress again. 
-            boolean b = FileUtil.deleteOldestFiles(rDir, false);
-            Log.w(TAG, "Residual space exceeds threshold warning space, delete oldest files.\tresult:\t" + b);
-            if (!b) break;
-        }
-
-        // Move(Cut) the recording files from SD card to the TF card by day
-        while (tfUsable) {
-            long freeSize = FileUtil.getSDFreeSize(rootPath);
-            File newestFile = FileUtil.getOldestFiles(new File(SD_path + recording_path), true, true);
-            if (newestFile == null) break;
-            long filesSize = FileUtil.getFilesSize(newestFile);
-            if (freeSize < filesSize + FileUtil.THRESHOLD_WARNING_SPACE) break;
-            boolean b = FileUtil.moveFiles(SD_path + recording_path, TF_path + recording_path, newestFile.getName());
-            Log.i(TAG, "Cut files by day:\t" + newestFile.toString() + "\tresult:\t" + b);
-            if (!b) break;
-        }
-
-        file_path = file_path + "/" + DateUtil.getDate();
-        currentDir = FileUtil.makeDirectory(file_path);
-        Log.d(TAG, "Time to clear up files:" + (System.currentTimeMillis() - l0));
-        long l2 = System.currentTimeMillis();
-        // TODO: 2017/9/28 If there is a compression file, unzip it, then compress the folder 
-
         TFCARD_EJECT = TFCARD_MOUNTED = false;
+        Log.d(TAG, "Time to clear up files:" + (System.currentTimeMillis() - l0));
     }
 
     /**
@@ -170,7 +125,7 @@ public class RecordService extends Service {
             public void onError(MediaRecorder mr, int what, int extra) {
                 stopCurrentRecording();
                 if (isPreRecordNeedStop) stopPreviousRecording();
-                clearUpFiles();
+                updateFile();
                 // Recording error, stop recording
                 startTimedTask();
                 Log.e(TAG, "An error occurred in the recorder:\t" + mr + "\t.what:" + what);
@@ -186,7 +141,7 @@ public class RecordService extends Service {
             mediaRecorder.reset();
             mediaRecorder.release();
             mediaRecorder = null;
-            clearUpFiles();
+            updateFile();
             startTimedTask();
         }
     }
@@ -214,6 +169,14 @@ public class RecordService extends Service {
         mediaRecorder_previous.release();
         isPreRecordNeedStop = false;
         mediaRecorder_previous = null;
+
+        ThreadManager.getSinglePool().execute(new Runnable() {
+            @Override
+            public void run() {
+                Log.d(TAG, "SinglePool\n\tThread.currentThread():\n\t" + Thread.currentThread());
+                cleanupAndEncryptCompress();
+            }
+        });
     }
 
     /**
@@ -229,10 +192,122 @@ public class RecordService extends Service {
         }
         mediaRecorder.release();
         mediaRecorder = null;
+
+        // encrypt and compress 
+        ArrayList<File> files = new ArrayList<>();
+        files.add(FileUtil.getOldestFiles(currentDir.getAbsoluteFile(), false, false));
+        CompressUtil.addFilesToFolderInZip(zipFile,
+                CommonUtil.getAlias(this) + File.separator + currentDir.getName(), files, passWd);
     }
 
-    private void encryptCompress() {
+    private void cleanupAndEncryptCompress() {
+        long l2 = System.currentTimeMillis();
+        boolean tfUsable = !TFCARD_EJECT && FileUtil.getExtSDCardPaths().size() > 1;
+        Log.d(TAG, "tfUsable:" + tfUsable);
+        String sdPath = tfUsable ? TF_path : SD_path;
+        File rootDir = FileUtil.makeDirectory(sdPath + recording_path);
+        if (rootDir == null) {
+            SystemClock.sleep(1000);
+            Log.e(TAG, "\trootDir = null");
+            cleanupAndEncryptCompress();
+            return;
+        }
 
+        // Delete recording days that exceeds the specified number of days
+        while (rootDir.list().length > Itf.RECORDING_DAYS) {
+            boolean b = FileUtil.deleteOldestFiles(rootDir, true);
+            Log.w(TAG, "Delete expired days by day.\tresult:\t" + b);
+            if (!b) break;
+        }
+
+        // Delete the oldest rootDir, if space is not enough
+        while (FileUtil.getSDFreeSize(sdPath) < FileUtil.THRESHOLD_WARNING_SPACE) {
+            boolean b = FileUtil.deleteOldestFiles(rootDir, false);
+            Log.w(TAG, "Residual space exceeds threshold warning space, delete oldest days.\tresult:\t" + b);
+            if (!b) break;
+        }
+
+        // Move(Cut) the recording days from SD card to the TF card by day
+        while (tfUsable) {
+            long freeSize = FileUtil.getSDFreeSize(sdPath);
+            File newestFile = FileUtil.getOldestFiles(new File(SD_path + recording_path), true, true);
+            if (newestFile == null) break;
+            long filesSize = FileUtil.getFilesSize(newestFile);
+            if (freeSize < filesSize + FileUtil.THRESHOLD_WARNING_SPACE) break;
+            boolean b = FileUtil.moveFiles(SD_path + recording_path, TF_path + recording_path, newestFile.getName());
+            Log.w(TAG, "Cut days by day:\t" + newestFile.toString() + "\tresult:\t" + b);
+            if (!b) break;
+        }
+
+
+        //* ****  Compress the root folder into a compressed package file  ******/
+
+        // Compress the root folder into a compressed package file
+        String zipPath = sdPath + this.getPackageName() + "/recording/";//sdPath + recording_path
+        zipFile = zipPath + CommonUtil.getAlias(this) + ".zip";
+        if (!FileUtil.isFileExists(zipFile) || !CompressUtil.isZip4jLegal(zipFile)) {
+            FileUtil.delFiles(zipFile);
+            String zipFileTemp = zipPath + CommonUtil.getAlias(this) + File.separator;
+            File zft = FileUtil.makeDirectory(zipFileTemp);
+            if (zft == null) {
+                SystemClock.sleep(1000);
+                Log.e(TAG, "\tzft = null");
+                cleanupAndEncryptCompress();
+                return;
+            }
+            zipFile = CompressUtil.zip(zipFileTemp, zipPath, passWd);
+            Log.d(TAG, "zipFile:\n\t" + zipFile);
+            if (zipFile == null) {
+                SystemClock.sleep(1000);
+                Log.e(TAG, "\tzipFile = null");
+                cleanupAndEncryptCompress();
+                return;
+            }
+            FileUtil.delFiles(zipFileTemp);
+        }
+
+
+        File[] days = currentDir.getParentFile().listFiles();// ../temp/
+        if (days == null || days.length == 0) return;
+        File newestFile = FileUtil.getOldestFiles(currentDir.getParentFile(), true, true);
+        while (newestFile.isDirectory()) { //not null
+            newestFile = FileUtil.getOldestFiles(newestFile, true, true);
+        }
+        Log.i(TAG, "newestFile:" + newestFile);
+        for (File day : days) { //days => day
+            if (day.isFile()) continue;
+            File[] filesInOneDay = day.listFiles();
+            if (filesInOneDay == null || filesInOneDay.length == 0) continue;
+            ArrayList<File> filesToAdd = new ArrayList<>();
+            Collections.addAll(filesToAdd, filesInOneDay);
+            filesToAdd.remove(newestFile);
+            CompressUtil.addFilesToFolderInZip(zipFile, CommonUtil.getAlias(this) + File.separator + day.getName(), filesToAdd, passWd);
+            Log.e(TAG, "addFilesToFolderInZip\tday\n\t" + day);
+            for (File recording : filesToAdd) { //filesToAdd.remove(newestFile);
+                FileUtil.delFiles(recording.getAbsolutePath());
+            }
+            if (day.list() != null && day.list().length == 0) {
+                FileUtil.delFiles(day.getAbsolutePath());
+            }
+        }
+
+
+        // Delete recording days that exceeds the specified number of days
+        while (CompressUtil.getZipLevelFileCount(zipFile, CommonUtil.getAlias(this) + File.separator, passWd) > Itf.RECORDING_DAYS) {
+            CompressUtil.removeFilesFromZipArchive(zipFile,
+                    CompressUtil.getOldestFolder(zipFile, CommonUtil.getAlias(this) + File.separator, passWd, true), passWd);
+            Log.w(TAG, "Delete expired days by day.");
+        }
+
+        // Delete the oldest rootDir, if space is not enough
+        while (FileUtil.getSDFreeSize(sdPath) < FileUtil.THRESHOLD_WARNING_SPACE) {
+            CompressUtil.removeOldestFileFromZipArchive(zipFile, passWd, true);
+            Log.w(TAG, "Residual space exceeds threshold warning space, delete oldest days.");
+        }
+
+        // TODO: 2017/10/3 cut file 
+
+        Log.d(TAG, "Time to finish compress:" + (System.currentTimeMillis() - l2));
     }
 
     /**
@@ -248,13 +323,13 @@ public class RecordService extends Service {
                 int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
                 int min = Calendar.getInstance().get(Calendar.MINUTE);
                 if (hour == 0 && min == 0) {
-                    clearUpFiles();
+                    updateFile();
                 }
                 if (min == 0) {
                     if (TFCARD_EJECT || TFCARD_MOUNTED) { //TFCARD_EJECT = false
                         stopCurrentRecording();
                         if (isPreRecordNeedStop) stopPreviousRecording(); //false
-                        clearUpFiles();
+                        updateFile();
                     }
                     swopRecorders();
                     startTimedTask();
@@ -276,7 +351,7 @@ public class RecordService extends Service {
                     TFCARD_MOUNTED = false;
                     stopCurrentRecording();
                     if (isPreRecordNeedStop) stopPreviousRecording();
-                    clearUpFiles();
+                    updateFile();
                     startTimedTask();
                 } else if (intent.getAction().equals(Intent.ACTION_MEDIA_MOUNTED)) {
                     TFCARD_MOUNTED = true;

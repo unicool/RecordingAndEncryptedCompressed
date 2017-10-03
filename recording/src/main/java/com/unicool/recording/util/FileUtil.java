@@ -3,6 +3,9 @@ package com.unicool.recording.util;
 import android.os.Environment;
 import android.os.StatFs;
 
+import net.lingala.zip4j.core.ZipFile;
+import net.lingala.zip4j.exception.ZipException;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
@@ -247,7 +250,15 @@ public class FileUtil {
         for (File f : d.listFiles()) {
             if (f.isFile()) {
                 if (f.getName().endsWith(".zip")) {
-                    fileList.add(f);
+                    try {
+                        ZipFile zFile = new ZipFile(f);
+                        zFile.setFileNameCharset("GBK");
+                        if (zFile.isValidZipFile()) {
+                            fileList.add(f);
+                        }
+                    } catch (ZipException e) {
+                        e.printStackTrace();
+                    }
                 }
             } else {
                 File[] files = haveZip4jFiles(f.getAbsolutePath());
