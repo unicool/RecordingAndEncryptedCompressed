@@ -10,7 +10,6 @@ import android.graphics.BitmapFactory;
 import android.media.MediaRecorder;
 import android.os.Environment;
 import android.os.IBinder;
-import android.os.SystemClock;
 import android.support.annotation.Nullable;
 import android.util.Log;
 
@@ -93,8 +92,12 @@ public class RecordService extends Service {
         String sdPath = tfUsable ? TF_path : SD_path;
         currentDir = FileUtil.makeDirectory(sdPath + recording_path + DateUtil.getDate());
         if (currentDir == null) {
-            SystemClock.sleep(1000);
             Log.e(TAG, "\tcurrentDir = null");
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
             updateFile();
             return;
         }
@@ -105,7 +108,7 @@ public class RecordService extends Service {
     /**
      * start record
      */
-    private synchronized void startTimedTask() {
+    private void startTimedTask() {
         mediaRecorder = new MediaRecorder();
         Log.i(TAG, "start record\t" + currentDir + "\t" + mediaRecorder);
         // 设置音频录入源
@@ -147,7 +150,8 @@ public class RecordService extends Service {
     }
 
     /**
-     * Save the previous recording object to stop the recording task in the front
+     * Save the previous recording object to stop the recording task in the front.
+     * Need to be invotened before #method startTimedTask()
      */
     private synchronized void swopRecorders() {
         if (mediaRecorder == null) return;
@@ -158,7 +162,7 @@ public class RecordService extends Service {
     /**
      * If recording, stop and release resources
      */
-    private synchronized void stopPreviousRecording() {
+    private void stopPreviousRecording() {
         Log.i(TAG, "Stop recording\t" + currentDir + "\t" + mediaRecorder_previous);
         if (mediaRecorder_previous == null) return;
         if (TFCARD_EJECT) {
@@ -182,7 +186,7 @@ public class RecordService extends Service {
     /**
      * stop and release current recording
      */
-    private synchronized void stopCurrentRecording() {
+    private void stopCurrentRecording() {
         Log.i(TAG, "Stop Current Recording\t" + currentDir + "\t" + mediaRecorder);
         if (mediaRecorder == null) return;
         if (TFCARD_EJECT) {
@@ -194,10 +198,16 @@ public class RecordService extends Service {
         mediaRecorder = null;
 
         // encrypt and compress 
+        File currentFile = FileUtil.getOldestFiles(currentDir.getParentFile(), true, true);
+        while (currentFile != null && currentFile.isDirectory()) { //not null, not directory
+            currentFile = FileUtil.getOldestFiles(currentFile, true, true);
+        }
+        if (currentFile == null) return;
         ArrayList<File> files = new ArrayList<>();
-        files.add(FileUtil.getOldestFiles(currentDir.getAbsoluteFile(), false, false));
+        files.add(currentFile);
         CompressUtil.addFilesToFolderInZip(zipFile,
                 CommonUtil.getAlias(this) + File.separator + currentDir.getName(), files, passWd);
+        FileUtil.delFiles(currentFile.getAbsolutePath());
     }
 
     private void cleanupAndEncryptCompress() {
@@ -207,8 +217,12 @@ public class RecordService extends Service {
         String sdPath = tfUsable ? TF_path : SD_path;
         File rootDir = FileUtil.makeDirectory(sdPath + recording_path);
         if (rootDir == null) {
-            SystemClock.sleep(1000);
             Log.e(TAG, "\trootDir = null");
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
             cleanupAndEncryptCompress();
             return;
         }
@@ -250,16 +264,24 @@ public class RecordService extends Service {
             String zipFileTemp = zipPath + CommonUtil.getAlias(this) + File.separator;
             File zft = FileUtil.makeDirectory(zipFileTemp);
             if (zft == null) {
-                SystemClock.sleep(1000);
                 Log.e(TAG, "\tzft = null");
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
                 cleanupAndEncryptCompress();
                 return;
             }
             zipFile = CompressUtil.zip(zipFileTemp, zipPath, passWd);
             Log.d(TAG, "zipFile:\n\t" + zipFile);
             if (zipFile == null) {
-                SystemClock.sleep(1000);
                 Log.e(TAG, "\tzipFile = null");
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
                 cleanupAndEncryptCompress();
                 return;
             }
@@ -267,10 +289,17 @@ public class RecordService extends Service {
         }
 
 
+        while (isPreRecordNeedStop) { //Prevent two recording files in progress
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
         File[] days = currentDir.getParentFile().listFiles();// ../temp/
         if (days == null || days.length == 0) return;
         File newestFile = FileUtil.getOldestFiles(currentDir.getParentFile(), true, true);
-        while (newestFile.isDirectory()) { //not null
+        while (newestFile != null && newestFile.isDirectory()) { //not null
             newestFile = FileUtil.getOldestFiles(newestFile, true, true);
         }
         Log.i(TAG, "newestFile:" + newestFile);
