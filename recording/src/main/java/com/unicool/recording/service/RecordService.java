@@ -151,7 +151,8 @@ public class RecordService extends Service {
 
     /**
      * Save the previous recording object to stop the recording task in the front.
-     * Need to be invotened before #method startTimedTask()
+     * Needs to be invoked before {@link #startTimedTask()},
+     * {@link #stopPreviousRecording()} needs to be invoked after this method.
      */
     private synchronized void swopRecorders() {
         if (mediaRecorder == null) return;
