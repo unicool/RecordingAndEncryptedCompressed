@@ -196,7 +196,7 @@ public class FileUtil {
         if (!isFileExists(origin)) return false;
         try {
             if (origin.isFile()) {
-                boolean b = copyFile(origin, new File(dstDir + file_P_N));
+                boolean b = copyFile(origin, new File(dstDir + "/" + file_P_N));
                 if (b) b = origin.delete();
                 return b;
             } else {
