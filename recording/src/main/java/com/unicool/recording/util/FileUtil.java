@@ -194,53 +194,55 @@ public class FileUtil {
     public static boolean moveFiles(String srcDir, String dstDir, String file_P_N) {
         File origin = new File(srcDir + "/" + file_P_N);
         if (!isFileExists(origin)) return false;
-        try {
-            if (origin.isFile()) {
-                boolean b = copyFile(origin, new File(dstDir + "/" + file_P_N));
-                if (b) b = origin.delete();
-                return b;
-            } else {
-                for (File of : origin.listFiles()) {
-                    if (of.isFile()) {
-                        boolean b = copyFile(of, new File(dstDir + "/" + origin.getName() + "/" + of.getName()));
-                        if (b) of.delete();
-                    } else {
-                        moveFiles(of.getAbsolutePath(), dstDir + "/" + origin.getName(), "/" + of.getName());
-                    }
+        if (origin.isFile()) {
+            boolean b = copyFile(origin, new File(dstDir + "/" + file_P_N));
+            if (b) b = origin.delete();
+            return b;
+        } else {
+            for (File of : origin.listFiles()) {
+                if (of.isFile()) {
+                    boolean b = copyFile(of, new File(dstDir + "/" + origin.getName() + "/" + of.getName()));
+                    if (b) of.delete();
+                } else {
+                    moveFiles(of.getAbsolutePath(), dstDir + "/" + origin.getName(), "/" + of.getName());
                 }
-                return origin.delete(); //文件夹
             }
-        } catch (IOException e) {
-            e.printStackTrace();
-            return false;
+            return origin.delete(); //文件夹
         }
     }
 
-    public static boolean copyFile(File sourceFile, File destFile) throws IOException {
+    public static boolean copyFile(File sourceFile, File destFile) {
         if (!isFileExists(sourceFile)) return false;
         if (!isFileExists(destFile.getParentFile())) {
             boolean mkdirs = destFile.getParentFile().mkdirs();
             if (!mkdirs) return false;
         }
-        if (!destFile.exists()) {
-            boolean newFile = destFile.createNewFile();
-            if (!newFile) return false;
-        }
         FileChannel source = null;
         FileChannel destination = null;
         try {
+            if (!destFile.exists()) {
+                boolean newFile = destFile.createNewFile();
+                if (!newFile) return false;
+            }
             source = new FileInputStream(sourceFile).getChannel();
             destination = new FileOutputStream(destFile).getChannel();
             destination.transferFrom(source, 0, source.size());
             return true;
+        } catch (IOException e) {
+            e.printStackTrace();
         } finally {
-            if (source != null) {
-                source.close();
-            }
-            if (destination != null) {
-                destination.close();
+            try {
+                if (source != null) {
+                    source.close();
+                }
+                if (destination != null) {
+                    destination.close();
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
             }
         }
+        return false;
     }
 
     public static File[] haveZip4jFiles(String dir) {
