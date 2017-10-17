@@ -197,7 +197,8 @@ public class FileUtil {
         try {
             if (origin.isFile()) {
                 boolean b = copyFile(origin, new File(dstDir + file_P_N));
-                if (b) origin.delete();
+                if (b) b = origin.delete();
+                return b;
             } else {
                 for (File of : origin.listFiles()) {
                     if (of.isFile()) {
@@ -207,8 +208,8 @@ public class FileUtil {
                         moveFiles(of.getAbsolutePath(), dstDir + "/" + origin.getName(), "/" + of.getName());
                     }
                 }
+                return origin.delete(); //文件夹
             }
-            return origin.delete(); //文件夹
         } catch (IOException e) {
             e.printStackTrace();
             return false;
