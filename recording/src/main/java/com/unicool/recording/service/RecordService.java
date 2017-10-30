@@ -25,7 +25,6 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Calendar;
-import java.util.Collections;
 
 
 /*
@@ -46,8 +45,17 @@ public class RecordService extends Service {
     private static MediaRecorder mediaRecorder;
     private static MediaRecorder mediaRecorder_previous;
     private static boolean isPreRecordNeedStop = false;
+    /**
+     * Intermediate path = PackageName + "/recording/temp/";
+     */
     private String recording_path;
+    /**
+     * The file path being recorded
+     */
     private File currentDir;
+    /**
+     * The current compression package path = ./Alias + /day.zip
+     */
     private String zipFile;
     private String passWd;
     private BroadcastReceiver time_tick_receiver;
@@ -94,7 +102,7 @@ public class RecordService extends Service {
         if (currentDir == null) {
             Log.e(TAG, "\tcurrentDir = null");
             try {
-                Thread.sleep(1000);
+                Thread.sleep(5000);
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
@@ -102,6 +110,9 @@ public class RecordService extends Service {
             return;
         }
         TFCARD_EJECT = TFCARD_MOUNTED = false;
+
+        long totalSize = FileUtil.getSDTotalSize(sdPath);
+        if (totalSize > 0) FileUtil.THRESHOLD_WARNING_SPACE = totalSize / 10;
         Log.d(TAG, "Time to clear up files:" + (System.currentTimeMillis() - l0));
     }
 
@@ -220,7 +231,7 @@ public class RecordService extends Service {
         if (rootDir == null) {
             Log.e(TAG, "\trootDir = null");
             try {
-                Thread.sleep(1000);
+                Thread.sleep(5000);
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
@@ -231,7 +242,7 @@ public class RecordService extends Service {
         // Delete recording days that exceeds the specified number of days
         while (rootDir.list().length > Itf.RECORDING_DAYS) {
             boolean b = FileUtil.deleteOldestFiles(rootDir, true);
-            Log.w(TAG, "Delete expired days by day.\tresult:\t" + b);
+            Log.w(TAG, "Delete expired files by day.\tresult:\t" + b);
             if (!b) break;
         }
 
@@ -255,84 +266,78 @@ public class RecordService extends Service {
         }
 
 
-        //* ****  Compress the root folder into a compressed package file  ******/
-
-        // Compress the root folder into a compressed package file
-        String zipPath = sdPath + this.getPackageName() + "/recording/";//sdPath + recording_path
-        zipFile = zipPath + CommonUtil.getAlias(this) + ".zip";
-        if (!FileUtil.isFileExists(zipFile) || !CompressUtil.isZip4jLegal(zipFile)) {
-            FileUtil.delFiles(zipFile);
-            String zipFileTemp = zipPath + CommonUtil.getAlias(this) + File.separator;
-            File zft = FileUtil.makeDirectory(zipFileTemp);
-            if (zft == null) {
-                Log.e(TAG, "\tzft = null");
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-                cleanupAndEncryptCompress();
-                return;
-            }
-            zipFile = CompressUtil.zip(zipFileTemp, zipPath, passWd);
-            Log.d(TAG, "zipFile:\n\t" + zipFile);
-            if (zipFile == null) {
-                Log.e(TAG, "\tzipFile = null");
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-                cleanupAndEncryptCompress();
-                return;
-            }
-            FileUtil.delFiles(zipFileTemp);
-        }
+        //******  Compress the root folder into a compressed package file  ******/
 
 
-        while (isPreRecordNeedStop) { //Prevent two recording files in progress
+        while (isPreRecordNeedStop || currentDir == null) { //Prevent two recording files in progress
             try {
-                Thread.sleep(1000);
+                Thread.sleep(5000);
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
         }
-        File[] days = currentDir.getParentFile().listFiles();// ../temp/
-        if (days == null || days.length == 0) return;
-        File newestFile = FileUtil.getOldestFiles(currentDir.getParentFile(), true, true);
-        while (newestFile != null && newestFile.isDirectory()) { //not null
-            newestFile = FileUtil.getOldestFiles(newestFile, true, true);
+        File currentMP3 = FileUtil.getOldestFiles(currentDir.getParentFile(), true, true);
+        while (currentMP3 != null && currentMP3.isDirectory()) { //not null
+            currentMP3 = FileUtil.getOldestFiles(currentMP3, true, true);
         }
-        Log.i(TAG, "newestFile:" + newestFile);
-        for (File day : days) { //days => day
-            if (day.isFile()) continue;
-            File[] filesInOneDay = day.listFiles();
-            if (filesInOneDay == null || filesInOneDay.length == 0) continue;
-            ArrayList<File> filesToAdd = new ArrayList<>();
-            Collections.addAll(filesToAdd, filesInOneDay);
-            filesToAdd.remove(newestFile);
-            CompressUtil.addFilesToFolderInZip(zipFile, CommonUtil.getAlias(this) + File.separator + day.getName(), filesToAdd, passWd);
-            Log.e(TAG, "addFilesToFolderInZip\tday\n\t" + day);
-            for (File recording : filesToAdd) { //filesToAdd.remove(newestFile);
-                FileUtil.delFiles(recording.getAbsolutePath());
+        Log.i(TAG, "currentMP3:" + currentMP3);
+
+        // Compress the root folder into a compressed package file
+
+        String zipParent = sdPath + this.getPackageName() + "/recording/" + CommonUtil.getAlias(this) + "/";
+        File[] dirs = rootDir.listFiles();
+        if (dirs == null || dirs.length == 0) return;
+        for (File d : dirs) { //temp/../...mp3
+            zipFile = zipParent + d.getName() + ".zip";
+            if (!FileUtil.isFileExists(zipFile) || !CompressUtil.isZip4jLegal(zipFile)) {
+                FileUtil.delFiles(zipFile);
+                Log.e(TAG, "delFiles zipFile  =  " + zipFile);
             }
-            if (day.list() != null && day.list().length == 0) {
-                FileUtil.delFiles(day.getAbsolutePath());
+            zipFile = CompressUtil.zip(d.getAbsolutePath(), zipParent, passWd);
+            Log.v(TAG, "\tzipFile:\n\t" + zipFile);
+            if (zipFile == null) {
+                Log.e(TAG, "\tzipFile = null");
+                try {
+                    Thread.sleep(5000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                cleanupAndEncryptCompress();
+                return;
+            }
+            if (!currentDir.getAbsolutePath().equals(d.getAbsolutePath()) || d.isFile()) {
+                FileUtil.delFiles(d.getAbsolutePath());
+            } else {
+                for (String mp3 : d.list()) {
+                    if (mp3.equals(currentMP3.getAbsolutePath())) {
+                        continue;
+                    }
+                    FileUtil.delFiles(mp3);
+                }
+                if (d.list() != null && d.list().length == 0) {
+                    FileUtil.delFiles(d.getAbsolutePath());
+                }
             }
         }
 
 
         // Delete recording days that exceeds the specified number of days
-        while (CompressUtil.getZipLevelFileCount(zipFile, CommonUtil.getAlias(this) + File.separator, passWd) > Itf.RECORDING_DAYS) {
-            CompressUtil.removeFilesFromZipArchive(zipFile,
-                    CompressUtil.getOldestFolder(zipFile, CommonUtil.getAlias(this) + File.separator, passWd, true), passWd);
-            Log.w(TAG, "Delete expired days by day.");
+        File zipDirs = FileUtil.makeDirectory(zipParent);
+        if (zipDirs == null) return;
+        while (zipDirs.list().length > Itf.RECORDING_DAYS) {
+            boolean b = FileUtil.deleteOldestFiles(zipDirs, true);
+            Log.w(TAG, "Delete expired compressed files by day.\tresult:\t" + b);
+            if (!b) break;
         }
 
         // Delete the oldest rootDir, if space is not enough
         while (FileUtil.getSDFreeSize(sdPath) < FileUtil.THRESHOLD_WARNING_SPACE) {
-            CompressUtil.removeOldestFileFromZipArchive(zipFile, passWd, true);
-            Log.w(TAG, "Residual space exceeds threshold warning space, delete oldest days.");
+            File oldestFiles = FileUtil.getOldestFiles(zipDirs, false, true);
+            if (oldestFiles == null) return;
+            boolean b = CompressUtil.isZip4jLegal(oldestFiles.getAbsolutePath());
+            Log.w(TAG, "Residual space exceeds threshold warning space, delete oldest files." + b);
+            if (!b) return;
+            CompressUtil.removeOldestFileFromZipArchive(oldestFiles.getAbsolutePath(), passWd, true);
         }
 
         // TODO: 2017/10/3 cut file 
@@ -347,7 +352,6 @@ public class RecordService extends Service {
         time_tick_receiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                if (!intent.getAction().equals(Intent.ACTION_TIME_TICK)) return;
                 // A task at each point in time
                 if (!intent.getAction().equals(Intent.ACTION_TIME_TICK)) return;
                 int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
