@@ -32,7 +32,7 @@ public class FileUtil {
     public final static long M = K * 1024;
     public final static long G = M * 1024;
     // 外置存储卡默认预警临界值
-    public static final long THRESHOLD_WARNING_SPACE = 200 * M;
+    public static final long THRESHOLD_WARNING_SPACE = 2 * G;
     // 保存文件时所需的最小空间的默认值
     public static final long THRESHOLD_MIN_SPCAE = 6 * M;
 

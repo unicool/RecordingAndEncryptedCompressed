@@ -314,11 +314,13 @@ public class CompressUtil {
                     return Integer.valueOf(f1.getLastModFileTime()).compareTo(f2.getLastModFileTime());
                 }
             });
-            FileHeader rmFile = fileHeaders.get(0);
-            if (rmFile.isDirectory()) {
-                removeOldestFileFromZipArchive(zFile, passwd, isSortByName);
-            } else {
-                zipFile.removeFile(rmFile);
+
+            for (int i = 0; i < fileHeaders.size(); i++) {
+                FileHeader rmFile = fileHeaders.get(i);
+                if (!rmFile.isDirectory()) {
+                    zipFile.removeFile(rmFile);
+                    break;
+                }
             }
         } catch (ZipException e) {
             e.printStackTrace();
