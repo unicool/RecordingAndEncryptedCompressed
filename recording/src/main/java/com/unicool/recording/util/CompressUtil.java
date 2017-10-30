@@ -206,12 +206,14 @@ public class CompressUtil {
      */
     private static File createDestDirectoryIfNecessary(String destParam) {
         File destDir = new File(destParam);
-        if (!destParam.endsWith(File.separator) && destDir.isFile()) {
-            destDir = new File(destParam.substring(0, destParam.lastIndexOf(File.separator)));
+        if (destDir.exists()) return destDir.isDirectory() ? destDir : destDir.getParentFile();
+        if (destParam.endsWith(File.separator)) {
+            if (!destDir.exists()) destDir.mkdirs();
+            return destDir;
         }
-        if (!destDir.exists()) {
-            destDir.mkdirs();//
-        }
+        //if (destParam.endsWith(".zip")) {
+        destDir = new File(destParam.substring(0, destParam.lastIndexOf(File.separator)));
+        if (!destDir.exists()) destDir.mkdirs();
         return destDir;
     }
 

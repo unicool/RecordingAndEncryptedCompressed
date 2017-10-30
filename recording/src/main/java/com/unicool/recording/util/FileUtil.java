@@ -32,9 +32,9 @@ public class FileUtil {
     public final static long M = K * 1024;
     public final static long G = M * 1024;
     // 外置存储卡默认预警临界值
-    public static final long THRESHOLD_WARNING_SPACE = 2 * G;
+    public static long THRESHOLD_WARNING_SPACE = 2 * G;
     // 保存文件时所需的最小空间的默认值
-    public static final long THRESHOLD_MIN_SPCAE = 6 * M;
+    public static long THRESHOLD_MIN_SPCAE = 6 * M;
 
     private FileUtil() {
     }
@@ -173,14 +173,18 @@ public class FileUtil {
         //取得内置SD卡文件路径
         // File path = Environment.getExternalStorageDirectory();
         StatFs sf = new StatFs(path);
-        //获取单个数据块的大小(Byte)
-        long blockSize = sf.getBlockSizeLong();
-        //空闲的数据块的数量
-        long freeBlocks = sf.getAvailableBlocksLong();
         //返回SD卡空闲大小
-        return freeBlocks * blockSize; //单位Byte
+        return sf.getAvailableBytes(); //单位Byte
 //        return (freeBlocks * blockSize) / 1024; //单位KB
 //        return (freeBlocks * blockSize) / 1024 / 1024; //单位MB
+    }
+
+    public static long getSDTotalSize(String path) {
+        if (!isFileExists(path)) return -1L;
+        //取得内置SD卡文件路径
+        // File path = Environment.getExternalStorageDirectory();
+        StatFs sf = new StatFs(path);
+        return sf.getTotalBytes(); //单位Byte
     }
 
     /**
