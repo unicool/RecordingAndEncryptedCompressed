@@ -95,8 +95,8 @@ public class RecordService extends Service {
     private synchronized void updateFile() {
         long l0 = System.currentTimeMillis();
         boolean tfUsable = !TFCARD_EJECT && FileUtil.getExtSDCardPaths().size() > 1;
-        Log.d(TAG, "tfUsable:" + tfUsable);
-        Log.d(TAG, "Time to get the extrernal SD cards paths:" + (System.currentTimeMillis() - l0));
+        Log.v(TAG, "tfUsable:" + tfUsable);
+        Log.v(TAG, "Time to get the extrernal SD cards paths:" + (System.currentTimeMillis() - l0));
         String sdPath = tfUsable ? TF_path : SD_path;
         currentDir = FileUtil.makeDirectory(sdPath + recording_path + DateUtil.getDate());
         if (currentDir == null) {
@@ -113,7 +113,7 @@ public class RecordService extends Service {
 
         long totalSize = FileUtil.getSDTotalSize(sdPath);
         if (totalSize > 0) FileUtil.THRESHOLD_WARNING_SPACE = totalSize / 10;
-        Log.d(TAG, "Time to clear up files:" + (System.currentTimeMillis() - l0));
+        Log.v(TAG, "Time to clear up files:" + (System.currentTimeMillis() - l0));
     }
 
     /**
@@ -281,6 +281,7 @@ public class RecordService extends Service {
             currentMP3 = FileUtil.getOldestFiles(currentMP3, true, true);
         }
         Log.i(TAG, "currentMP3:" + currentMP3);
+        if (currentMP3 == null) return;
 
         // Compress the root folder into a compressed package file
 
@@ -308,11 +309,12 @@ public class RecordService extends Service {
             if (!currentDir.getAbsolutePath().equals(d.getAbsolutePath()) || d.isFile()) {
                 FileUtil.delFiles(d.getAbsolutePath());
             } else {
-                for (String mp3 : d.list()) {
-                    if (mp3.equals(currentMP3.getAbsolutePath())) {
+                for (File mp3 : d.listFiles()) {
+                    if (mp3.equals(currentMP3)) {
                         continue;
                     }
-                    FileUtil.delFiles(mp3);
+                    FileUtil.delFiles(mp3.getAbsolutePath());
+                    Log.w(TAG, "delete file after compress\t" + mp3.getAbsolutePath());
                 }
                 if (d.list() != null && d.list().length == 0) {
                     FileUtil.delFiles(d.getAbsolutePath());
@@ -342,7 +344,7 @@ public class RecordService extends Service {
 
         // TODO: 2017/10/3 cut file 
 
-        Log.d(TAG, "Time to finish compress:" + (System.currentTimeMillis() - l2));
+        Log.v(TAG, "Time to finish compress:" + (System.currentTimeMillis() - l2));
     }
 
     /**
